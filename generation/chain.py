@@ -8,6 +8,7 @@ from retrieval.reranker import rerank
 from retrieval.assembler import deduplicate_mmr, assemble_context
 from generation.prompts import SYSTEM_PROMPT, RAG_PROMPT_TEMPLATE
 from generation.output_parser import parse_llm_output, PolicyLensResponse
+from generation.citation_builder import validate_citations_against_context, build_citation_block
 
 load_dotenv()
 
@@ -17,7 +18,6 @@ _llm = ChatOpenAI(
     api_key=os.getenv("OPENAI_API_KEY"),
 )
 
-# Stricter retry prompt — used when first attempt produces invalid output
 _RETRY_SUFFIX = (
     "\n\nYour previous response was not valid JSON or did not match the required schema. "
     "Respond ONLY with a valid JSON object. No markdown, no prose, no code fences. "
@@ -38,13 +38,12 @@ def run_rag_query(
     namespace: str = "default",
     use_hyde: bool = False,
     top_k: int = 5,
-) -> PolicyLensResponse:
+) -> dict:
     """
     Full RAG pipeline: retrieval → context assembly → generation → validation.
 
-    Retries generation once with a stricter prompt if the first attempt
-    fails Pydantic validation. Raises on second failure — the caller
-    should handle this and return a 500 to the API client.
+    Returns a dict with the validated response, formatted citation block,
+    and citation validation results for audit logging.
     """
     print(f"\n[chain] Query: {query}")
 
@@ -57,12 +56,16 @@ def run_rag_query(
     assembled = assemble_context(deduped)
 
     if not assembled["citation_map"]:
-        return PolicyLensResponse(
-            answer="No relevant context found in the knowledge base.",
-            confidence_score=0.0,
-            gaps=["No documents matched this query."],
-            requires_legal_review=True,
-        )
+        return {
+            "response": PolicyLensResponse(
+                answer="No relevant context found in the knowledge base.",
+                confidence_score=0.0,
+                gaps=["No documents matched this query."],
+                requires_legal_review=True,
+            ),
+            "citation_block": "No citations available.",
+            "citation_validation": [],
+        }
 
     user_message = RAG_PROMPT_TEMPLATE.format(
         context=assembled["context"],
@@ -79,7 +82,7 @@ def run_rag_query(
         raw = _call_llm(SYSTEM_PROMPT, user_message + _RETRY_SUFFIX)
         result = parse_llm_output(raw)
 
-    # Enrich citations with full metadata from the citation map
+    # Enrich citations with metadata from the context map
     for citation in result.citations:
         sid = citation.source_id
         if sid in assembled["citation_map"]:
@@ -90,5 +93,22 @@ def run_rag_query(
             citation.source_url   = citation.source_url   or meta.get("source_url", "")
             citation.jurisdiction = citation.jurisdiction or meta.get("jurisdiction", "")
 
+    # Validate that every cited SOURCE_ID actually existed in context
+    citation_validation = validate_citations_against_context(
+        result.citations, assembled["citation_map"]
+    )
+
+    hallucinated = [v for v in citation_validation if not v["valid"]]
+    if hallucinated:
+        print(f"[chain] WARNING: {len(hallucinated)} hallucinated citation(s) detected")
+        for h in hallucinated:
+            print(f"  {h['issue']}")
+
+    citation_block = build_citation_block(result.citations)
+
     print(f"[chain] Done. Confidence: {result.confidence_score}")
-    return result
+    return {
+        "response":            result,
+        "citation_block":      citation_block,
+        "citation_validation": citation_validation,
+    }
