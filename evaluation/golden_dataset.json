@@ -1,0 +1,62 @@
+[
+  {
+    "query": "How did the euro-currency market grow independently?",
+    "expected_fragment": "independent growth",
+    "namespace": "cbk",
+    "notes": "Core topic of the document"
+  },
+  {
+    "query": "What is the relationship between euro-currency market and oil prices?",
+    "expected_fragment": "oil prices",
+    "namespace": "cbk",
+    "notes": "Mentioned in introduction"
+  },
+  {
+    "query": "How does euro-currency market affect international bank lending?",
+    "expected_fragment": "international bank lending",
+    "namespace": "cbk",
+    "notes": "Table 2 reference"
+  },
+  {
+    "query": "What are the borrowers market conditions?",
+    "expected_fragment": "borrowers",
+    "namespace": "cbk",
+    "notes": "Title concept"
+  },
+  {
+    "query": "What happened to euro-currency market in 1979?",
+    "expected_fragment": "1979",
+    "namespace": "cbk",
+    "notes": "Specific year reference"
+  },
+  {
+    "query": "How do banks create credit in the euro-currency system?",
+    "expected_fragment": "credit-creating",
+    "namespace": "cbk",
+    "notes": "Credit creation mechanism"
+  },
+  {
+    "query": "What is the role of OECD in euro-currency market growth?",
+    "expected_fragment": "OECD",
+    "namespace": "cbk",
+    "notes": "OECD reference in tables"
+  },
+  {
+    "query": "How does political uncertainty affect the euro-currency market?",
+    "expected_fragment": "political uncertainty",
+    "namespace": "cbk",
+    "notes": "Introduction statement"
+  },
+  {
+    "query": "What controls exist on international banking activity?",
+    "expected_fragment": "controls",
+    "namespace": "cbk",
+    "notes": "Regulatory controls discussion"
+  },
+  {
+    "query": "How did foreign bank operations change after 1974?",
+    "expected_fragment": "1974",
+    "namespace": "cbk",
+    "notes": "Specific regulatory year"
+  }
+]
