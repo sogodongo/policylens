@@ -9,6 +9,7 @@ from retrieval.assembler import deduplicate_mmr, assemble_context
 from generation.prompts import SYSTEM_PROMPT, RAG_PROMPT_TEMPLATE
 from generation.output_parser import parse_llm_output, PolicyLensResponse
 from generation.citation_builder import validate_citations_against_context, build_citation_block
+from generation.faithfulness import check_faithfulness
 
 load_dotenv()
 
@@ -38,12 +39,13 @@ def run_rag_query(
     namespace: str = "default",
     use_hyde: bool = False,
     top_k: int = 5,
+    run_faithfulness: bool = True,
 ) -> dict:
     """
-    Full RAG pipeline: retrieval → context assembly → generation → validation.
+    Full RAG pipeline: retrieval → assembly → generation → validation → faithfulness.
 
-    Returns a dict with the validated response, formatted citation block,
-    and citation validation results for audit logging.
+    run_faithfulness=False skips the NLI check — useful in development
+    when you want faster iteration and don't need the faithfulness score.
     """
     print(f"\n[chain] Query: {query}")
 
@@ -63,8 +65,9 @@ def run_rag_query(
                 gaps=["No documents matched this query."],
                 requires_legal_review=True,
             ),
-            "citation_block": "No citations available.",
+            "citation_block":      "No citations available.",
             "citation_validation": [],
+            "faithfulness":        None,
         }
 
     user_message = RAG_PROMPT_TEMPLATE.format(
@@ -82,7 +85,6 @@ def run_rag_query(
         raw = _call_llm(SYSTEM_PROMPT, user_message + _RETRY_SUFFIX)
         result = parse_llm_output(raw)
 
-    # Enrich citations with metadata from the context map
     for citation in result.citations:
         sid = citation.source_id
         if sid in assembled["citation_map"]:
@@ -93,7 +95,6 @@ def run_rag_query(
             citation.source_url   = citation.source_url   or meta.get("source_url", "")
             citation.jurisdiction = citation.jurisdiction or meta.get("jurisdiction", "")
 
-    # Validate that every cited SOURCE_ID actually existed in context
     citation_validation = validate_citations_against_context(
         result.citations, assembled["citation_map"]
     )
@@ -101,14 +102,22 @@ def run_rag_query(
     hallucinated = [v for v in citation_validation if not v["valid"]]
     if hallucinated:
         print(f"[chain] WARNING: {len(hallucinated)} hallucinated citation(s) detected")
-        for h in hallucinated:
-            print(f"  {h['issue']}")
 
     citation_block = build_citation_block(result.citations)
+
+    faithfulness_result = None
+    if run_faithfulness:
+        faithfulness_result = check_faithfulness(
+            answer=result.answer,
+            context=assembled["context"],
+        )
+        print(f"[chain] Faithfulness: {faithfulness_result['verdict']} "
+              f"(score={faithfulness_result['faithfulness_score']})")
 
     print(f"[chain] Done. Confidence: {result.confidence_score}")
     return {
         "response":            result,
         "citation_block":      citation_block,
         "citation_validation": citation_validation,
+        "faithfulness":        faithfulness_result,
     }
