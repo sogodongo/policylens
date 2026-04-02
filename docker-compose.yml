@@ -11,5 +11,18 @@ services:
     volumes:
       - es_data:/usr/share/elasticsearch/data
 
+  postgres:
+    image: postgres:15
+    container_name: policylens-pg
+    environment:
+      POSTGRES_DB: policylens
+      POSTGRES_USER: policylens
+      POSTGRES_PASSWORD: policylens
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+
 volumes:
   es_data:
+  pg_data:
