@@ -25,12 +25,6 @@ PolicyLens:
 
 ---
 
-## Dashboard
-
-![PolicyLens Dashboard](docs/images/dashboard_screenshot.png)
-
----
-
 ## Architecture
 ```
 PDF / DOCX / Web → Ingestion Pipeline → Pinecone + Elasticsearch
@@ -190,7 +184,7 @@ python3 tests/test_integration.py
 | Week 1 | Ingestion pipeline | Done |
 | Week 2 | Hybrid retrieval | Done |
 | Week 3 | Generation + citations | Done |
-| Week 4 | API + evaluation | In progress |
+| Week 4 | API + evaluation | Done |
 
 ---
 
