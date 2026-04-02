@@ -1,4 +1,6 @@
 import os
+import time
+import uuid
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
@@ -41,14 +43,14 @@ def run_rag_query(
     top_k: int = 5,
     run_faithfulness: bool = True,
 ) -> dict:
-    """
-    Full RAG pipeline: retrieval → assembly → generation → validation → faithfulness.
+    trace_id    = str(uuid.uuid4())
+    total_start = time.time()
+    timings     = {}
 
-    run_faithfulness=False skips the NLI check — useful in development
-    when you want faster iteration and don't need the faithfulness score.
-    """
-    print(f"\n[chain] Query: {query}")
+    print(f"\n[chain] Query: {query} | trace={trace_id[:8]}")
 
+    # Retrieval
+    t0 = time.time()
     candidates = hybrid_search(
         query, namespace=namespace,
         top_k=top_k * 2, use_hyde=use_hyde,
@@ -56,6 +58,7 @@ def run_rag_query(
     reranked  = rerank(query, candidates, top_k=top_k)
     deduped   = deduplicate_mmr(reranked)
     assembled = assemble_context(deduped)
+    timings["retrieval_ms"] = int((time.time() - t0) * 1000)
 
     if not assembled["citation_map"]:
         return {
@@ -68,6 +71,7 @@ def run_rag_query(
             "citation_block":      "No citations available.",
             "citation_validation": [],
             "faithfulness":        None,
+            "trace_id":            trace_id,
         }
 
     user_message = RAG_PROMPT_TEMPLATE.format(
@@ -75,6 +79,8 @@ def run_rag_query(
         query=query,
     )
 
+    # Generation
+    t0 = time.time()
     print(f"[chain] Calling GPT-4o ({assembled['token_count']} context tokens)...")
     raw = _call_llm(SYSTEM_PROMPT, user_message)
 
@@ -84,6 +90,7 @@ def run_rag_query(
         print(f"[chain] First attempt failed: {e}. Retrying...")
         raw = _call_llm(SYSTEM_PROMPT, user_message + _RETRY_SUFFIX)
         result = parse_llm_output(raw)
+    timings["generation_ms"] = int((time.time() - t0) * 1000)
 
     for citation in result.citations:
         sid = citation.source_id
@@ -105,14 +112,40 @@ def run_rag_query(
 
     citation_block = build_citation_block(result.citations)
 
+    # Faithfulness
     faithfulness_result = None
+    timings["faithfulness_ms"] = 0
     if run_faithfulness:
+        t0 = time.time()
         faithfulness_result = check_faithfulness(
             answer=result.answer,
             context=assembled["context"],
         )
+        timings["faithfulness_ms"] = int((time.time() - t0) * 1000)
         print(f"[chain] Faithfulness: {faithfulness_result['verdict']} "
               f"(score={faithfulness_result['faithfulness_score']})")
+
+    timings["total_ms"] = int((time.time() - total_start) * 1000)
+
+    try:
+        from evaluation.langsmith_logger import log_trace, init_traces_table
+        init_traces_table()
+        log_trace(
+            trace_id=trace_id,
+            query_text=query,
+            namespace=namespace,
+            timings=timings,
+            metrics={
+                "chunks_retrieved": len(deduped),
+                "context_tokens":   assembled["token_count"],
+                "confidence":       result.confidence_score,
+            },
+        )
+        print(f"[chain] Trace logged — retrieval={timings['retrieval_ms']}ms "
+              f"generation={timings['generation_ms']}ms "
+              f"total={timings['total_ms']}ms")
+    except Exception as e:
+        print(f"[chain] Trace logging failed (non-fatal): {e}")
 
     print(f"[chain] Done. Confidence: {result.confidence_score}")
     return {
@@ -120,4 +153,5 @@ def run_rag_query(
         "citation_block":      citation_block,
         "citation_validation": citation_validation,
         "faithfulness":        faithfulness_result,
+        "trace_id":            trace_id,
     }
