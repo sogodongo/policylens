@@ -19,6 +19,18 @@ PolicyLens:
 
 ---
 
+## Dashboard
+
+![PolicyLens Dashboard](docs/images/dashboard_screenshot.png)
+
+---
+
+## Dashboard
+
+![PolicyLens Dashboard](docs/images/dashboard_screenshot.png)
+
+---
+
 ## Architecture
 ```
 PDF / DOCX / Web → Ingestion Pipeline → Pinecone + Elasticsearch
