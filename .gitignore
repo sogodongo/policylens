@@ -8,3 +8,11 @@ __pycache__/
 dist/
 build/
 .pytest_cache/
+
+# Data files — PDFs and cache stay local, not in the repo
+data/
+scripts/
+
+# Pinecone and ingestion state
+data/ingestion_registry.json
+data/blocks_cache.json
