@@ -2,9 +2,6 @@ from retrieval.embedder import embed_chunks
 from retrieval.pinecone_store import query_index
 from retrieval.bm25_store import search_bm25
 
-
-# k=60 is the standard RRF constant — higher k reduces the impact of
-# top-ranked results, lower k amplifies them. 60 is well-validated empirically.
 RRF_K = 60
 
 
@@ -13,8 +10,6 @@ def _rrf_score(rank: int) -> float:
 
 
 def _embed_query(query_text: str) -> list[float]:
-    # Reuse embed_chunks with a minimal fake chunk — avoids duplicating
-    # the OpenAI client setup just for single-query embedding
     result = embed_chunks([{
         "text": query_text,
         "heading": "", "page": 0, "doc_title": "",
@@ -29,21 +24,40 @@ def hybrid_search(
     top_k: int = 5,
     dense_candidates: int = 8,
     sparse_candidates: int = 8,
+    use_hyde: bool = False,
 ) -> list[dict]:
     """
-    Queries both Pinecone (dense) and Elasticsearch (sparse) then fuses
-    results using Reciprocal Rank Fusion.
+    Queries Pinecone (dense) and Elasticsearch (sparse) then fuses
+    results with RRF.
 
-    Returns top_k chunks ranked by combined RRF score. Each result
-    includes both its original scores and the final rrf_score for debugging.
+    When use_hyde=True, generates hypothetical document embeddings
+    to improve dense retrieval recall on short or vague queries.
+    The BM25 search always uses the original query — HyDE only
+    helps the vector search side.
     """
-    query_vector = _embed_query(query)
+    if use_hyde:
+        from retrieval.hyde import expand_query_hyde
+        hypotheticals = expand_query_hyde(query, n_hypothetical=2)
+        print(f"[hyde] Generated {len(hypotheticals)} hypothetical excerpts")
 
-    dense_results  = query_index(query_vector, namespace=namespace, top_k=dense_candidates)
+        # Embed the original query + both hypotheticals and merge candidates
+        all_query_texts = [query] + hypotheticals
+        dense_results = []
+        seen_texts = set()
+
+        for text in all_query_texts:
+            vec = _embed_query(text)
+            results = query_index(vec, namespace=namespace, top_k=dense_candidates)
+            for r in results:
+                if r["text"] not in seen_texts:
+                    dense_results.append(r)
+                    seen_texts.add(r["text"])
+    else:
+        query_vector = _embed_query(query)
+        dense_results = query_index(query_vector, namespace=namespace, top_k=dense_candidates)
+
     sparse_results = search_bm25(query, namespace=namespace, top_k=sparse_candidates)
 
-    # Build a unified score map keyed by chunk text
-    # Using text as key because vector IDs and ES doc IDs are different formats
     scores: dict[str, dict] = {}
 
     for rank, result in enumerate(dense_results):
